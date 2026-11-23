@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
+import re
 from pathlib import Path
 
 import matplotlib as mpl
@@ -14,14 +17,7 @@ from matplotlib.axes import Axes
 from matplotlib.ticker import PercentFormatter
 
 
-BASE_RESULTS = {
-    "accuracy": 71.0,
-    "format_rate": 75.0,
-}
-GRPO_RESULTS = {
-    "accuracy": 87.0,
-    "format_rate": 91.0,
-}
+TICK_STEP = 4
 
 BASE_COLOR = "#AEB4BE"
 GRPO_COLOR = "#4A86E8"
@@ -29,7 +25,10 @@ INK = "#252525"
 MUTED_INK = "#777777"
 GRID_COLOR = "#D6D9DE"
 
-DEFAULT_OUTPUT = Path(__file__).resolve().parent / "images" / "eval-comparison.png"
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_BASE_RESULTS = SCRIPT_DIR / "eval-results-base.json"
+DEFAULT_GRPO_RESULTS = SCRIPT_DIR / "eval-results-step-100.json"
+DEFAULT_OUTPUT = SCRIPT_DIR / "images" / "eval-comparison.png"
 
 
 def configure_style() -> None:
@@ -80,12 +79,54 @@ def style_axis(ax: Axes) -> None:
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=100, decimals=0))
 
 
+def load_eval_results(path: Path) -> dict:
+    """Read an eval.py output JSON and convert metrics to percentages."""
+    if not path.is_file():
+        raise SystemExit(f"Eval results not found: {path}. Run eval.py first.")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "accuracy": data["metrics"]["accuracy"] * 100,
+        "format_rate": data["metrics"]["format_rate"] * 100,
+        "eval_size": data["eval_size"],
+        "eval_seed": data["eval_seed"],
+        "base_model": data["base_model"],
+        "model_path": data["model_path"],
+    }
+
+
+def checkpoint_label(model_path: str | None) -> str:
+    match = re.search(r"step-(\d+)", model_path or "")
+    return f"Step {match.group(1)}" if match else "GRPO"
+
+
+def focused_axes(
+    metric_values: list[tuple[float, float]],
+) -> list[tuple[tuple[int, int], list[int]]]:
+    """Per-metric focused y-limits that share one span for equal visual scale."""
+    # 3 pp below the lower bar, 5 pp above the higher bar for its value label.
+    bounds = [
+        (
+            math.floor((min(values) - 3) / TICK_STEP) * TICK_STEP,
+            math.ceil((max(values) + 5) / TICK_STEP) * TICK_STEP,
+        )
+        for values in metric_values
+    ]
+    span = min(max(upper - lower for lower, upper in bounds), 100)
+    axes = []
+    for lower, _ in bounds:
+        lower = min(max(lower, 0), 100 - span)
+        upper = lower + span
+        axes.append(((lower, upper), list(range(lower, upper + 1, TICK_STEP))))
+    return axes
+
+
 def plot_metric(
     ax: Axes,
     *,
     title: str,
     base_value: float,
     grpo_value: float,
+    checkpoint: str,
     y_limits: tuple[float, float],
     y_ticks: list[float],
     show_ylabel: bool,
@@ -120,11 +161,11 @@ def plot_metric(
         )
 
     delta = grpo_value - base_value
-    delta_y = (base_value + grpo_value) / 2 + 1.0
+    delta_y = (base_value + grpo_value) / 2 + value_offset
     ax.text(
         0.5,
         delta_y,
-        f"+{delta:.1f} pp",
+        f"{delta:+.1f} pp",
         ha="center",
         va="center",
         color="#2563C4",
@@ -141,11 +182,11 @@ def plot_metric(
 
     ax.text(
         0.02,
-        0.035,
+        0.965,
         "focused y-axis",
         transform=ax.transAxes,
         ha="left",
-        va="bottom",
+        va="top",
         color="#9A9A9A",
         fontsize=6.7,
         fontstyle="italic",
@@ -154,36 +195,40 @@ def plot_metric(
     ax.set_xlabel("Model / Checkpoint", labelpad=8)
     if show_ylabel:
         ax.set_ylabel("Score")
-    ax.set_xticks(x_positions, ["Base", "Step 100"])
+    ax.set_xticks(x_positions, ["Base", checkpoint])
     ax.set_xlim(-0.72, 1.72)
     ax.set_ylim(*y_limits)
     ax.set_yticks(y_ticks)
     style_axis(ax)
 
 
-def build_figure() -> plt.Figure:
+def build_figure(
+    base: dict,
+    grpo: dict,
+    *,
+    checkpoint: str,
+    eval_size: int,
+    model_name: str,
+) -> plt.Figure:
     """Build the two-panel publication-style comparison figure."""
     configure_style()
     figure, axes = plt.subplots(1, 2, figsize=(7.2, 3.0))
 
-    plot_metric(
-        axes[0],
-        title="(a) Accuracy",
-        base_value=BASE_RESULTS["accuracy"],
-        grpo_value=GRPO_RESULTS["accuracy"],
-        y_limits=(68, 92),
-        y_ticks=[68, 72, 76, 80, 84, 88, 92],
-        show_ylabel=True,
-    )
-    plot_metric(
-        axes[1],
-        title="(b) Format Rate",
-        base_value=BASE_RESULTS["format_rate"],
-        grpo_value=GRPO_RESULTS["format_rate"],
-        y_limits=(72, 96),
-        y_ticks=[72, 76, 80, 84, 88, 92, 96],
-        show_ylabel=False,
-    )
+    metrics = [("accuracy", "(a) Accuracy"), ("format_rate", "(b) Format Rate")]
+    axis_specs = focused_axes([(base[key], grpo[key]) for key, _ in metrics])
+    for index, ((key, title), (y_limits, y_ticks)) in enumerate(
+        zip(metrics, axis_specs, strict=True)
+    ):
+        plot_metric(
+            axes[index],
+            title=title,
+            base_value=base[key],
+            grpo_value=grpo[key],
+            checkpoint=checkpoint,
+            y_limits=y_limits,
+            y_ticks=y_ticks,
+            show_ylabel=index == 0,
+        )
 
     figure.suptitle(
         "GeoQA · Vision GRPO Evaluation",
@@ -197,7 +242,7 @@ def build_figure() -> plt.Figure:
     figure.text(
         0.5,
         0.875,
-        "Fixed 100-question evaluation set · Qwen3.5-4B · independent focused y-axes",
+        f"Fixed {eval_size}-question evaluation set · {model_name} · independent focused y-axes",
         ha="center",
         va="center",
         fontsize=8.0,
@@ -213,12 +258,11 @@ def build_figure() -> plt.Figure:
     return figure
 
 
-def save_figure(output: Path) -> Path:
+def save_figure(figure: plt.Figure, output: Path) -> Path:
     """Save the comparison as a 600 DPI PNG."""
     png_path = output if output.suffix.lower() == ".png" else output.with_suffix(".png")
     png_path.parent.mkdir(parents=True, exist_ok=True)
 
-    figure = build_figure()
     figure.savefig(png_path, dpi=600)
     plt.close(figure)
     return png_path
@@ -226,7 +270,19 @@ def save_figure(output: Path) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plot the Base vs. GRPO step-100 GeoQA evaluation results."
+        description="Plot the Base vs. GRPO checkpoint GeoQA evaluation results."
+    )
+    parser.add_argument(
+        "--base-results",
+        type=Path,
+        default=DEFAULT_BASE_RESULTS,
+        help="eval.py output JSON for the base model.",
+    )
+    parser.add_argument(
+        "--grpo-results",
+        type=Path,
+        default=DEFAULT_GRPO_RESULTS,
+        help="eval.py output JSON for the GRPO checkpoint.",
     )
     parser.add_argument(
         "--output",
@@ -239,7 +295,20 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    png_path = save_figure(args.output)
+    base = load_eval_results(args.base_results)
+    grpo = load_eval_results(args.grpo_results)
+    for key in ("eval_size", "eval_seed"):
+        if base[key] != grpo[key]:
+            raise SystemExit(f"Mismatched {key}: base={base[key]}, grpo={grpo[key]}")
+
+    figure = build_figure(
+        base,
+        grpo,
+        checkpoint=checkpoint_label(grpo["model_path"]),
+        eval_size=base["eval_size"],
+        model_name=base["base_model"].split("/")[-1],
+    )
+    png_path = save_figure(figure, args.output)
     print(f"Saved {png_path}")
 
 

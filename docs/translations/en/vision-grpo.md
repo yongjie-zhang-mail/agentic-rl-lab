@@ -356,7 +356,7 @@ Regenerate the comparison figure:
 uv run python experiments/vision-grpo/analysis.py
 ```
 
-`analysis.py` plots the Base and step-100 summary values recorded in this article; it does not read newly generated evaluation JSON. After a new experiment, update `BASE_RESULTS` and `GRPO_RESULTS` in the script first.
+By default, `analysis.py` reads `eval-results-base.json` and `eval-results-step-100.json` produced by `eval.py` in the same directory; the y-axis ranges and checkpoint label are computed automatically. Use `--base-results` and `--grpo-results` when the results are stored elsewhere.
 
 ## 6. Implementation boundaries
 

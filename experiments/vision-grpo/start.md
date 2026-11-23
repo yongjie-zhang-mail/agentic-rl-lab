@@ -141,4 +141,12 @@ uv run python experiments/vision-grpo/analysis.py
 experiments/vision-grpo/images/eval-comparison.png
 ```
 
-当前 `analysis.py` 绘制的是文档记录的 Base `71.0% / 75.0%` 与 step 100 `87.0% / 91.0%`。新实验完成后，先更新 `BASE_RESULTS` 和 `GRPO_RESULTS`。
+脚本默认读取第 7、8 节生成的 `eval-results-base.json` 与 `eval-results-step-100.json`。如果评测结果保存在其他位置，可以显式指定：
+
+```bash
+uv run python experiments/vision-grpo/analysis.py \
+  --base-results path/to/base.json \
+  --grpo-results path/to/checkpoint.json
+```
+
+两个文件的 `eval_size` 和 `eval_seed` 必须一致，否则脚本会报错退出。

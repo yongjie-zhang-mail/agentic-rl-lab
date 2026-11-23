@@ -356,7 +356,7 @@ Base 的 75 条格式正确回答里有 71 条答对，条件准确率为 `71 / 
 uv run python experiments/vision-grpo/analysis.py
 ```
 
-`analysis.py` 使用本文记录的 Base 与 step-100 汇总值绘图，不会读取新生成的评测 JSON。完成新实验后，请先更新脚本中的 `BASE_RESULTS` 与 `GRPO_RESULTS`。
+`analysis.py` 默认读取同目录下 `eval.py` 生成的 `eval-results-base.json` 与 `eval-results-step-100.json`，y 轴范围和 checkpoint 标签会自动计算。评测结果在其他位置时，用 `--base-results` 与 `--grpo-results` 指定。
 
 ## 6. 关键实现边界
 

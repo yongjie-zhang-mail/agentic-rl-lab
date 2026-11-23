@@ -141,4 +141,12 @@ Output location:
 experiments/vision-grpo/images/eval-comparison.png
 ```
 
-The current `analysis.py` plots the documented base results `71.0% / 75.0%` and step-100 results `87.0% / 91.0%`. After a new experiment, update `BASE_RESULTS` and `GRPO_RESULTS` first.
+By default, the script reads `eval-results-base.json` and `eval-results-step-100.json` produced in Sections 7 and 8. If the results are stored elsewhere, pass them explicitly:
+
+```bash
+uv run python experiments/vision-grpo/analysis.py \
+  --base-results path/to/base.json \
+  --grpo-results path/to/checkpoint.json
+```
+
+Both files must share the same `eval_size` and `eval_seed`; otherwise the script exits with an error.

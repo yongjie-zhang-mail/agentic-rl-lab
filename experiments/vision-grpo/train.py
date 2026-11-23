@@ -75,6 +75,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--learning-rate", type=float, default=4e-5)
     parser.add_argument(
+        "--train-micro-batch",
+        type=int,
+        default=8,
+        help="每次 forward_backward 的 datum 数，受服务端单批图片数上限约束",
+    )
+    parser.add_argument(
         "--swanlab-mode",
         choices=("online", "local", "offline", "disabled"),
         default="online",
@@ -419,15 +425,20 @@ async def main(args: argparse.Namespace) -> None:
 
             trainer_metrics: dict[str, float] = {}
             if datums:
-                forward_backward = await training_client.forward_backward_async(
-                    datums,
-                    loss_fn="importance_sampling",
-                )
+                # 分块 forward_backward 累积梯度，再统一 optim_step。
+                forward_backwards = [
+                    await training_client.forward_backward_async(
+                        datums[start : start + args.train_micro_batch],
+                        loss_fn="importance_sampling",
+                    )
+                    for start in range(0, len(datums), args.train_micro_batch)
+                ]
                 optim_step = await training_client.optim_step_async(adam_params)
-                result = await forward_backward
+                results = [await future for future in forward_backwards]
                 await optim_step
                 trainer_metrics = {
-                    key: float(value) for key, value in result.metrics.items()
+                    key: sum(float(r.metrics[key]) for r in results) / len(results)
+                    for key in results[0].metrics
                 }
 
             mean_reward = sum(prompt_rewards) / len(prompt_rewards)
